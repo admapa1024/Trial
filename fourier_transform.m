@@ -1,22 +1,40 @@
 %% TRANSFORMADA DE FOURIER - Representaciones 2D en el dominio frecuencial
-% Señal compuesta por 3 sinusoides con amplitudes y frecuencias distintas
+% Acepta un archivo de audio como señal de entrada.
+% Si no se especifica, usa una señal sintética de ejemplo.
 
 clear; clc; close all;
 
-%% ── 1. PARÁMETROS Y GENERACIÓN DE LA SEÑAL ──────────────────────────────────
-fs       = 1000;          % Frecuencia de muestreo (Hz)
-duration = 1.0;           % Duración (s)
-t        = 0 : 1/fs : duration - 1/fs;
-N        = length(t);
+%% ── 0. ARCHIVO DE AUDIO (opcional) ──────────────────────────────────────────
+% Indica la ruta al archivo de audio (WAV, MP3, FLAC, OGG, etc.).
+% Deja la cadena vacía ('') para usar la señal sintética de ejemplo.
+audio_file = '';   % Ejemplo: audio_file = 'mi_audio.wav';
 
-% Señal = suma de sinusoides (mismas componentes que el script Python)
-f1 = 50;   A1 = 1.00;
-f2 = 120;  A2 = 0.50;
-f3 = 300;  A3 = 0.25;
+%% ── 1. CARGA O GENERACIÓN DE LA SEÑAL ───────────────────────────────────────
+if ~isempty(audio_file) && isfile(audio_file)
+    fprintf('Cargando archivo de audio: %s\n', audio_file);
+    [signal_raw, fs] = audioread(audio_file);
+    % Convertir estéreo (o multicanal) a mono promediando canales
+    if size(signal_raw, 2) > 1
+        signal_raw = mean(signal_raw, 2);
+    end
+    signal   = signal_raw(:)';          % vector fila
+    duration = length(signal) / fs;
+    t        = (0 : length(signal)-1) / fs;
+    fprintf('  fs = %d Hz  |  Duración = %.2f s  |  Muestras = %d\n', ...
+            fs, duration, length(signal));
+elseif ~isempty(audio_file)
+    warning('Archivo no encontrado: "%s"\nUsando señal sintética de ejemplo.', audio_file);
+    fs = 1000;  duration = 1.0;
+    t  = 0 : 1/fs : duration - 1/fs;
+    signal = 1.00*sin(2*pi*50*t) + 0.50*sin(2*pi*120*t) + 0.25*sin(2*pi*300*t);
+else
+    fprintf('No se especificó archivo de audio. Usando señal sintética de ejemplo.\n');
+    fs = 1000;  duration = 1.0;
+    t  = 0 : 1/fs : duration - 1/fs;
+    signal = 1.00*sin(2*pi*50*t) + 0.50*sin(2*pi*120*t) + 0.25*sin(2*pi*300*t);
+end
 
-signal = A1*sin(2*pi*f1*t) + ...
-         A2*sin(2*pi*f2*t) + ...
-         A3*sin(2*pi*f3*t);
+N = length(signal);
 
 %% ── 2. FFT ───────────────────────────────────────────────────────────────────
 Y         = fft(signal);
@@ -27,12 +45,14 @@ magnitude(end) = magnitude(end) / 2;     % componente Nyquist sin x2
 phase     = angle(Y(1:N/2+1));           % fase (radianes)
 
 %% ── 3. ESPECTROGRAMA (Short-Time Fourier Transform) ─────────────────────────
-win_len  = 128;           % longitud de ventana (muestras)
-hop      = 32;            % salto entre ventanas
-win      = hann(win_len); % ventana de Hann
+win_len  = min(256, floor(N / 4));        % ventana adaptada a la longitud de la señal
+hop      = floor(win_len / 4);
+win      = hann(win_len);
 [S, F, T_spec] = spectrogram(signal, win, win_len - hop, win_len, fs);
 
 %% ── 4. FIGURA 1: Señal temporal + Espectro de magnitud + Fase ───────────────
+f_max = fs / 2;                            % máxima frecuencia a mostrar
+
 figure('Name','Transformada de Fourier', 'NumberTitle','off', ...
        'Position',[100 100 1100 700]);
 
@@ -41,15 +61,15 @@ subplot(3,2,[1 2]);
 plot(t, signal, 'b', 'LineWidth', 1.2);
 title('Señal en el dominio temporal');
 xlabel('Tiempo (s)');  ylabel('Amplitud');
-xlim([0 0.1]);         % primeros 100 ms para mejor visualización
+xlim([0 duration]);
 grid on;
 
 % --- 4b. Espectro de magnitud (escala lineal)
 subplot(3,2,3);
-stem(freqs, magnitude, 'r', 'MarkerSize', 3, 'LineWidth', 0.8);
+plot(freqs, magnitude, 'r', 'LineWidth', 0.8);
 title('Espectro de magnitud (lineal)');
 xlabel('Frecuencia (Hz)');  ylabel('|X(f)|');
-xlim([0 500]);
+xlim([0 f_max]);
 grid on;
 
 % --- 4c. Espectro de magnitud (escala logarítmica dB)
@@ -57,7 +77,7 @@ subplot(3,2,4);
 plot(freqs, 20*log10(magnitude + 1e-12), 'm', 'LineWidth', 1.2);
 title('Espectro de magnitud (dB)');
 xlabel('Frecuencia (Hz)');  ylabel('Magnitud (dB)');
-xlim([0 500]);  ylim([-80 10]);
+xlim([0 f_max]);  ylim([-80 10]);
 grid on;
 
 % --- 4d. Espectro de fase
@@ -65,7 +85,7 @@ subplot(3,2,5);
 plot(freqs, rad2deg(phase), 'g', 'LineWidth', 1.0);
 title('Espectro de fase');
 xlabel('Frecuencia (Hz)');  ylabel('Fase (°)');
-xlim([0 500]);
+xlim([0 f_max]);
 grid on;
 
 % --- 4e. Espectrograma 2D (tiempo × frecuencia)
@@ -76,28 +96,29 @@ colormap(gca, 'jet');
 colorbar;
 title('Espectrograma 2D (STFT)');
 xlabel('Tiempo (s)');  ylabel('Frecuencia (Hz)');
-ylim([0 500]);
+ylim([0 f_max]);
 clim([-80 0]);
 
-sgtitle('Análisis de Fourier — fs = 1000 Hz', 'FontSize', 14, 'FontWeight', 'bold');
+sgtitle(sprintf('Análisis de Fourier — fs = %d Hz', fs), 'FontSize', 14, 'FontWeight', 'bold');
 
 %% ── 5. FIGURA 2: Representación 2D de la energía espectral ──────────────────
 figure('Name','Densidad espectral de potencia 2D', 'NumberTitle','off', ...
        'Position',[150 150 900 500]);
 
-% PSD estimada con el método de Welch
-[pxx, fpxx] = pwelch(signal, hann(256), 128, 512, fs);
+win_pwelch = min(256, floor(N / 4));
+[pxx, fpxx] = pwelch(signal, hann(win_pwelch), floor(win_pwelch/2), win_pwelch*2, fs);
 
 subplot(1,2,1);
 area(fpxx, 10*log10(pxx), 'FaceColor',[0.2 0.5 0.8], 'FaceAlpha',0.6, 'EdgeColor','b');
 title('Densidad Espectral de Potencia (Welch)');
 xlabel('Frecuencia (Hz)');  ylabel('PSD (dB/Hz)');
-xlim([0 500]);
+xlim([0 f_max]);
 grid on;
 
-% Mapa de calor 2D: ventanas × bins de frecuencia (magnitud del espectrograma)
+% Mapa de calor 2D: ventanas × bins de frecuencia
 subplot(1,2,2);
-pcolor(T_spec, F(F<=500), abs(S(F<=500,:)));
+F_mask = F <= f_max;
+pcolor(T_spec, F(F_mask), abs(S(F_mask,:)));
 shading interp;
 colormap(gca, 'hot');
 colorbar;
@@ -111,7 +132,7 @@ fprintf('\n=== Frecuencias dominantes ===\n');
 fprintf('%-20s %-12s\n', 'Frecuencia (Hz)', 'Magnitud');
 fprintf('%s\n', repmat('-', 1, 34));
 
-threshold = 0.05;
+threshold = max(magnitude) * 0.05;   % 5% del pico máximo
 dom_idx   = find(magnitude > threshold);
 [~, ord]  = sort(magnitude(dom_idx), 'descend');
 dom_idx   = dom_idx(ord);
